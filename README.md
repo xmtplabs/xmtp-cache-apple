@@ -33,17 +33,28 @@ nix store add --name Xcode.app /Applications/Xcode_26.3.app
 
 Bump both `xcode-path` and `xcode-nix-path` together when Xcode upgrades.
 
-### FlakeHub binary cache (cross-branch, paid past free tier)
+### FlakeHub Cache (cross-branch, cross-org, paid)
 
 ```yaml
-- uses: xmtplabs/xmtp-cache-apple@v1
-  with:
-    xcode-path: /Applications/Xcode_26.3.app
-    xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
-    backend: flakehub
-    flakehub-cache-name: xmtplabs/private-xcode
-    flakehub-token: ${{ secrets.FLAKEHUB_CACHE_TOKEN }}
+jobs:
+  build:
+    permissions:
+      id-token: write     # required by flakehub-cache-action for OIDC auth
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: nixbuild/nix-quick-install-action@v33
+      - uses: xmtplabs/xmtp-cache-apple@v1
+        with:
+          xcode-path: /Applications/Xcode_26.3.app
+          xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+          backend: flakehub
 ```
+
+FlakeHub Cache uses GitHub OIDC — no PAT or secret needed. Setup:
+1. An admin of the calling org installs the FlakeHub GitHub App.
+2. A paid plan is selected (no free tier as of 2025).
+3. Workflow declares `permissions: id-token: write` at the job level.
 
 ## Inputs
 
@@ -53,8 +64,6 @@ Bump both `xcode-path` and `xcode-nix-path` together when Xcode upgrades.
 | `xcode-nix-path` | yes | — | Pinned `/nix/store/<hash>-Xcode.app`. |
 | `backend` | no | `warpbuilds` | `warpbuilds` or `flakehub`. |
 | `cache-key` | no | derived | Override the WarpBuilds cache key. |
-| `flakehub-cache-name` | for `flakehub` | — | `org/cache` slug. |
-| `flakehub-token` | for `flakehub` | — | FlakeHub auth token. |
 
 ## Outputs
 
@@ -76,8 +85,10 @@ Bump both `xcode-path` and `xcode-nix-path` together when Xcode upgrades.
 - **`warpbuilds`**: included with Warp runners, no extra cost. Cache scope is
   per-branch — pre-warm `dev`/`main` on a schedule if you want PR branches to
   hit on first run.
-- **`flakehub`**: cross-branch substitution, SOC II audited. Paid past the
-  free tier; Xcode is ~11 GiB, factor that into your plan.
+- **`flakehub`**: cross-branch substitution, cross-repo, SOC II audited.
+  GitHub OIDC auth (no token plumbing). Per-seat paid plan; the
+  predecessor's free tier ended Feb 2025. Xcode is ~11 GiB — factor storage
+  cost into the plan you pick.
 
 ## License
 

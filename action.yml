@@ -2,8 +2,8 @@ name: Pin Xcode in /nix/store
 description: >
   Materialize Apple's Xcode at a pinned /nix/store/<hash>-Xcode.app path so
   flake-based iOS builds can refer to it deterministically. Two backends:
-  WarpBuilds cache (private, branch-scoped) or FlakeHub binary cache
-  (cross-branch substituter).
+  WarpBuilds cache (private, branch-scoped) or FlakeHub Cache (cross-branch
+  substituter via DeterminateSystems/flakehub-cache-action; OIDC auth).
 
 inputs:
   xcode-path:
@@ -24,18 +24,6 @@ inputs:
       from xcode-nix-path. Only consulted when backend=warpbuilds.
     required: false
     default: ''
-  flakehub-cache-name:
-    description: >
-      FlakeHub cache identifier (org/cache). Only consulted when backend=flakehub.
-    required: false
-    default: ''
-  flakehub-token:
-    description: >
-      FlakeHub auth token. Only consulted when backend=flakehub. Pass the
-      secret in directly; the action does not read env vars itself.
-    required: false
-    default: ''
-
 outputs:
   cache-hit:
     description: 'true' when Xcode was hydrated from the backend without rehashing
@@ -57,7 +45,7 @@ runs:
           echo "present=false" >> "$GITHUB_OUTPUT"
         fi
 
-    # --- WarpBuilds cache backend ------------------------------------------
+    # --- WarpBuilds cache backend -----------------------------------------
     - name: Resolve WarpBuilds cache key
       if: inputs.backend == 'warpbuilds' && steps.probe.outputs.present == 'false'
       id: wb-key
@@ -88,37 +76,24 @@ runs:
         zstd -d -T0 -c ~/xcode-store.nar.zst | nix-store --import
 
     # --- FlakeHub backend --------------------------------------------------
-    - name: Configure FlakeHub substituter
+    # The cache action runs a local daemon that transparently substitutes
+    # from and pushes to cache.flakehub.com via GitHub OIDC. No tokens, no
+    # netrc — the calling workflow only needs `permissions: id-token: write`.
+    - name: Set up FlakeHub Cache
       if: inputs.backend == 'flakehub' && steps.probe.outputs.present == 'false'
-      shell: bash
-      env:
-        FLAKEHUB_TOKEN: ${{ inputs.flakehub-token }}
-      run: |
-        if [ -z "${{ inputs.flakehub-cache-name }}" ]; then
-          echo "::error::flakehub-cache-name required when backend=flakehub"
-          exit 1
-        fi
-        if [ -z "$FLAKEHUB_TOKEN" ]; then
-          echo "::error::flakehub-token required when backend=flakehub"
-          exit 1
-        fi
-        mkdir -p ~/.config/nix
-        printf 'machine cache.flakehub.com password %s\n' "$FLAKEHUB_TOKEN" >> ~/.config/nix/netrc
-        chmod 600 ~/.config/nix/netrc
-        cat >> ~/.config/nix/nix.conf <<EOF
-        extra-substituters = https://cache.flakehub.com/${{ inputs.flakehub-cache-name }}
-        extra-trusted-substituters = https://cache.flakehub.com/${{ inputs.flakehub-cache-name }}
-        netrc-file = $HOME/.config/nix/netrc
-        EOF
+      uses: DeterminateSystems/flakehub-cache-action@v3
 
-    - name: Pull from FlakeHub
+    # The bootstrap step below runs `nix store add` on a cold cache; the
+    # FlakeHub daemon picks up the new path and pushes it asynchronously.
+    # Pulling on a warm cache also flows through the daemon — `nix path-info`
+    # in the bootstrap will see the path already substituted.
+    - name: Substitute Xcode from FlakeHub
       if: inputs.backend == 'flakehub' && steps.probe.outputs.present == 'false'
       shell: bash
       run: |
-        if ! nix copy --from "https://cache.flakehub.com/${{ inputs.flakehub-cache-name }}" \
-            --no-check-sigs "${{ inputs.xcode-nix-path }}" 2>&1; then
-          echo "::warning::FlakeHub did not have ${{ inputs.xcode-nix-path }}; will bootstrap"
-        fi
+        # Trigger a substitution attempt; ignore failure (bootstrap fallback
+        # below will rehash if FlakeHub doesn't have it yet).
+        nix-store --realise "${{ inputs.xcode-nix-path }}" 2>/dev/null || true
 
     # --- Bootstrap (cold): hash the runner-local Xcode into /nix/store. ----
     - name: Bootstrap from runner-local Xcode
@@ -152,13 +127,7 @@ runs:
         path: ~/xcode-store.nar.zst
         key: ${{ steps.wb-key.outputs.key }}
 
-    # --- FlakeHub: push bootstrap result for next run. ---------------------
-    - name: Push to FlakeHub
-      if: inputs.backend == 'flakehub' && steps.bootstrap.outputs.ran == 'true'
-      shell: bash
-      run: |
-        nix copy --to "https://cache.flakehub.com/${{ inputs.flakehub-cache-name }}" \
-          "${{ inputs.xcode-nix-path }}"
+    # FlakeHub: nothing to do — the cache daemon pushes asynchronously.
 
     - name: Summarize
       id: summary
