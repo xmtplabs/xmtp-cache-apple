@@ -26,7 +26,7 @@ inputs:
     default: ''
 outputs:
   cache-hit:
-    description: 'true' when Xcode was hydrated from the backend without rehashing
+    description: "'true' when Xcode was hydrated from the backend without rehashing"
     value: ${{ steps.summary.outputs.cache-hit }}
   developer-dir:
     description: Same as xcode-nix-path; pass through to xcodebuild's DEVELOPER_DIR
