@@ -93,7 +93,10 @@ runs:
       run: |
         # Trigger a substitution attempt; ignore failure (bootstrap fallback
         # below will rehash if FlakeHub doesn't have it yet).
-        nix-store --realise "${{ inputs.xcode-nix-path }}" 2>/dev/null || true
+        # bar-with-logs + -L surfaces per-path "copying path X (N MiB)" lines
+        # so CI logs show download progress.
+        nix-store --realise "${{ inputs.xcode-nix-path }}" \
+          --log-format bar-with-logs -L 2>&1 || true
 
     # --- Bootstrap (cold): hash the runner-local Xcode into /nix/store. ----
     - name: Bootstrap from runner-local Xcode
