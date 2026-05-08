@@ -23,7 +23,7 @@ inputs:
       Override the WarpBuilds cache key. Defaults to a stable string derived
       from xcode-nix-path. Only consulted when backend=warpbuilds.
     required: false
-    default: ''
+    default: ""
 outputs:
   cache-hit:
     description: "'true' when Xcode was hydrated from the backend without rehashing"
@@ -95,8 +95,7 @@ runs:
         # below will rehash if FlakeHub doesn't have it yet).
         # bar-with-logs + -L surfaces per-path "copying path X (N MiB)" lines
         # so CI logs show download progress.
-        nix-store --realise "${{ inputs.xcode-nix-path }}" \
-          --log-format bar-with-logs -L 2>&1 || true
+        nix-store --realise "${{ inputs.xcode-nix-path }}" 2>&1 || true
 
     # --- Bootstrap (cold): hash the runner-local Xcode into /nix/store. ----
     - name: Bootstrap from runner-local Xcode
